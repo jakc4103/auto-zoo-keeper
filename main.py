@@ -178,8 +178,13 @@ def get_move(arr=None):
             # print(out==arr)
             
             mask = (out==arr).astype(np.float)
-            
+            tmp = np.stack(np.where(mask), -1)
+            # print(tmp)
+            for idx in range(tmp.shape[0]):
+                moves.append((tmp[idx], rot))
             # from 2 consecutive, detect 3 consecutive
+    # print(moves)
+    return moves
 
 def main():
     scale = 1
