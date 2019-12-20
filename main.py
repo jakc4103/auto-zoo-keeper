@@ -14,13 +14,13 @@ from scipy import signal
 7 rabbit
 """
 animals = {
-    1: 'elephant',
-    2: 'frog',
-    3: 'giraffe',
-    4: 'hippo',
-    5: 'lion',
-    6: 'monkey',
-    7: 'panda'
+    2: 'elephant',
+    3: 'frog',
+    5: 'giraffe',
+    8: 'hippo',
+    12: 'lion',
+    17: 'monkey',
+    23: 'panda'
 }
 
 def parse_screen(img, targ, thres=0.8, scale=1):
@@ -148,41 +148,38 @@ def get_arr(img, target_dict):
     return arr
 
 filters = {
-    0: np.array([[0, 0, 0], [0.5, 0.5, 0], [0, 0, 0]]),
-    1: np.array([[0, 0, 0], [0, 0.5, 0], [0.5, 0, 0]])
+    0: np.array([[0, 0, 0.5], [0, 0, 0.5], [0, 0, 0], [0, 0, 0], [0, 0, 0]]),
+    1: np.array([[0, 0, 0.5], [0, 0, 0], [0, 0, 0.5]]),
+    2: np.array([0, 0, 0, 0, 0, 0.5, 0.5]).reshape((1, -1))
 }
 
+
 def get_move(arr=None):
+    """
+    0 for right, 1 for up, 2 for left, 3 for down
+    """
     if arr is None:
-        arr = np.array([[2., 4., 5., 5., 3., 6., 4., 6.],
-                        [4., 3., 7., 7., 3., 3., 1., 2.],
-                        [3., 5., 7., 2., 5., 7., 6., 7.],
-                        [4., 0., 5., 1., 7., 2., 5., 1.],
-                        [3., 6., 7., 3., 4., 2., 3., 4.],
-                        [5., 1., 1., 6., 1., 3., 1., 1.],
-                        [6., 6., 3., 2., 5., 4., 6., 2.],
-                        [4., 5., 3., 6., 5., 1., 3., 2.]])
+        arr = np.array([[ 3.,  8., 12., 12.,  5., 17.,  8., 17.],
+                        [ 8.,  5., 23., 23.,  5.,  5.,  2.,  3.],
+                        [ 5., 12., 23.,  3., 12., 23., 17., 23.],
+                        [ 8.,  0., 12.,  2., 23.,  3., 12.,  2.],
+                        [ 5., 17., 23.,  5.,  8.,  3.,  5.,  8.],
+                        [12.,  2.,  2., 17.,  2.,  5.,  2.,  2.],
+                        [17., 17.,  5.,  3., 12.,  8., 17.,  3.],
+                        [ 8., 12.,  5., 17., 12.,  2.,  5.,  3.]])
 
     moves = [] # (coord, dir) ex ((3, 4), 1) means move (3, 4) to right
     # detect 2 consecutive
-
-    for rot in range(4):
-        out = signal.correlate2d(arr, np.rot90(filters[0], rot), mode='same')
-        # print(arr)
-        # print(np.rot90(filters[0], rot))
-        # print(out==arr)
-        
-        mask = (out==arr).astype(np.float)
-        
-        # from 2 consecutive, detect 3 consecutive
-
-    for rot in range(4):
-        out = signal.correlate2d(arr, np.rot90(filters[1], rot), mode='same')
-        mask = (out==arr).astype(np.float)
-        
-        # from 2 consecutive, detect 3 consecutive
-
-        
+    for key in filters:
+        for rot in range(4):
+            out = signal.correlate2d(arr, np.rot90(filters[key], rot), mode='same', fillvalue=100)
+            # print(arr)
+            # print(np.rot90(filters[key], rot))
+            # print(out==arr)
+            
+            mask = (out==arr).astype(np.float)
+            
+            # from 2 consecutive, detect 3 consecutive
 
 def main():
     scale = 1
@@ -190,7 +187,7 @@ def main():
     coord = {}
     min_h = min_w = 300000
     max_h = max_w = 0
-    for idx in range(1, 8):
+    for idx in animals:
         # print("{}".format(animals[idx]))
         img = cv2.imread("ttt.png")
         # img = cv2.cvtColor(img_rgb, cv2.COLOR_BGR2HSV)
@@ -227,7 +224,7 @@ def main():
 def capture():
     import time
     target_dict = {}
-    for i in range(1, 8):
+    for i in animals:
         target_dict[i] = cv2.imread("icons/animals/{}.png".format(animals[i]))
         
     with mss.mss() as sct:
