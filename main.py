@@ -2,6 +2,7 @@ import cv2
 import mss
 import numpy as np
 from scipy import signal
+import keyboard, mouse
 
 """
 0 elephant
@@ -50,7 +51,7 @@ def locate_board_animals(img, target_dict, thres=0.8, scale=1):
     """
     min_h = min_w = 300000
     max_h = max_w = 0
-    for idx in range(1, 8):
+    for idx in animals:
         target = target_dict[idx]
         _, w, h = target.shape[::-1]
 
@@ -61,6 +62,7 @@ def locate_board_animals(img, target_dict, thres=0.8, scale=1):
         scale = 0.95
         while len(loc) == 0 and np.sum(np.array(img_tmp.shape) > np.array(target.shape) + 20) == 2:
             # scale *= 0.99
+            scale -= 0.01
             img_tmp = cv2.resize(img_tmp, (0, 0), fx=scale, fy=scale)#, interpolation=cv2.INTER_NEAREST)
             res = cv2.matchTemplate(img_tmp, target, cv2.TM_CCOEFF_NORMED)
 
@@ -84,7 +86,7 @@ def locate_board(img, board, thres=0.8):
     """
     min_h = min_w = 300000
     max_h = max_w = 0
-    scale = 1.05
+    scale = 1.01
     res = cv2.matchTemplate(img, board, cv2.TM_CCOEFF_NORMED)
     loc = np.where( res >= thres)
     loc = list(zip(*loc[::-1]))
@@ -236,19 +238,27 @@ def capture():
         # Part of the screen to capture
         monitor = {"top": 40, "left": 0, "width": 800, "height": 640, "mon": 0}
         # monitor = {"mon": 1}
+        region = []
+        while True:
+            if keyboard.is_pressed('shift') and mouse.is_pressed(button='left') and len(region) == 0:
+                region.append(mouse.get_position())
+                print(region)
 
-        while "Screen capturing":
-            last_time = time.time()
+            if len(region) == 1 and keyboard.is_pressed('shift') and not mouse.is_pressed(button='left'):
+                region.append(mouse.get_position())
+                print(region)
+                break
 
-            # Get raw pixels from the screen, save it to a Numpy array
-            img = np.array(sct.grab(sct.monitors[1]))
-
-            arr = get_arr(img[:, :, :3], target_dict)
-            print(arr)
-            print("fps: {}".format(1 / (time.time() - last_time)))
+            if len(region) == 2:
+                # Get raw pixels from the screen, save it to a Numpy array
+                img = np.array(sct.grab(sct.monitors[1]))
+                cv2.imshow("test", img[region[0][0]:region[1][0], region[0][1]:region[1][1], :3])
+                cv2.waitKey(0)
+                arr = get_arr(img[:, :, :3], target_dict)
+                # print(arr)
 
 
 if __name__ == '__main__':
-    # capture()
-    get_move()
+    capture()
+    # get_move()
     # main()
