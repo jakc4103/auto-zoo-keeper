@@ -20,7 +20,7 @@ animals = {
 
 filters = {
     0: np.array([[0, 0, 0.5], [0, 0, 0.5], [0, 0, 0], [0, 0, 0], [0, 0, 0]]),
-    1: np.array([[0.5, 0, 0], [0.5, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0]]),
+    1: np.array([[0, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0.5], [0, 0, 0.5]]),
     2: np.array([[0, 0, 0.5], [0, 0, 0], [0, 0, 0.5]]),
     3: np.array([0, 0, 0, 0, 0, 0.5, 0.5]).reshape((1, -1))
 }
@@ -96,7 +96,6 @@ def locate_animals(img, target_dict, thres=0.8, scale=1):
 def get_arr(img, target_dict):
     global top_left_icon
     arr = np.zeros((8, 8))
-
     coord_dict, coord_list = locate_animals(img, target_dict)
 
     if len(coord_list) != 0:
@@ -146,9 +145,13 @@ def get_move(arr=None):
                 if mask_moved[tuple(tmp[idx])] == 1:
                     moves.append((tmp[idx], rot))
                     mask_moved[tuple(tmp[idx])] = 0
+                    mask_moved[tuple(tmp[idx]+dirs[rot])] = 0
+                    arr[tuple(tmp[idx])], arr[tuple(tmp[idx]+dirs[rot])] = arr[tuple(tmp[idx]+dirs[rot])], arr[tuple(tmp[idx])]
                     break
-        if len(moves) > 0: # early break to save computing resources
+                    
+        if len(moves) > 10: # early break to save computing resources
             break
+
     if len(moves) == 0:
         icon_other = np.stack(np.where(arr==0), -1)
         for idx in range(icon_other.shape[0]):
@@ -172,7 +175,7 @@ def main():
 
     game_mode = 0
     battle_start_time = None
-    
+
     with mss.mss() as sct:
         min_h = min_w = 300000
         max_h = max_w = 0
@@ -189,10 +192,10 @@ def main():
         if scale != 0:
             print("Screen detected, standing by")
             game_mode = 1
-            min_h = int(min_h * scale)
-            max_h = int(max_h * scale)
-            min_w = int(min_w * scale)
-            max_w = int(max_w * scale)
+            min_h = int(round(min_h * scale)) - 5
+            max_h = int(round(max_h * scale)) + 5
+            min_w = int(round(min_w * scale)) - 5
+            max_w = int(round(max_w * scale)) + 5
             coord_base = np.array([min_h, min_w])
 
             monitor = {"top": min_h, "left": min_w, "width": max_w-min_w, "height": max_h-min_h}
@@ -217,7 +220,7 @@ def main():
 
                 elif game_mode == 3 and is_pattern_found(img_gray, win):
                     game_mode = 1
-                    print("End battle")
+                    print("End battle, standing by")
 
                 elif game_mode == 2:
                     # detect, parse, and command board
@@ -226,13 +229,20 @@ def main():
                     moves = get_move(arr)
                     if len(moves) != 0:
                         # move icons
-                        start, dd = moves[0]
-                        
-                        coord_start = (start * icon_shape + (icon_shape/2)  + top_left_icon + coord_base).astype(np.int32)
-                        coord_dest = (coord_start + dirs[dd] * icon_shape).astype(np.int32)
+                        # idx = np.random.randint(0, len(moves))
+                        for idx in range(len(moves)):
+                            start, dd = moves[idx]
+                            
+                            coord_start = (start * icon_shape + (icon_shape/2)  + top_left_icon + coord_base).astype(np.int32)
+                            coord_dest = (coord_start + dirs[dd] * icon_shape).astype(np.int32)
 
-                        pyautogui.moveTo(coord_start[1], coord_start[0])
-                        pyautogui.dragTo(coord_dest[1], coord_dest[0], button='left')
+                            pyautogui.moveTo(coord_start[1], coord_start[0])
+                            pyautogui.dragTo(coord_dest[1], coord_dest[0], button='left')
+                            # print(moves[idx])
+                            # print("start", coord_start)
+                            # print("end", coord_dest)
+                            # print(pyautogui.position())
+                            # print("="*100)
 
                     # detect if cur round is over
                     if time.time()-battle_start_time > 29:
@@ -241,7 +251,7 @@ def main():
                             print("Pause battle")
                         elif is_pattern_found(img_gray, home_icons):
                             game_mode = 1
-                            print("Home icons detected")
+                            print("Home icons detected, standing by")
 
                 elif game_mode != 1 and is_pattern_found(img_gray, home_icons):
                     game_mode = 1
