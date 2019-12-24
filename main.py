@@ -2,263 +2,252 @@ import cv2
 import mss
 import numpy as np
 from scipy import signal
-import keyboard, mouse
+import pyautogui
+import time
 
-"""
-0 elephant
-1 frog
-2 giraffe
-3 hippo
-4 lion
-5 monkey
-6 panda
-7 rabbit
-"""
+top_left_icon = None
+
 animals = {
     2: 'elephant',
     3: 'frog',
     5: 'giraffe',
-    8: 'hippo',
+    9: 'hippo',
     12: 'lion',
     17: 'monkey',
-    23: 'panda'
+    23: 'panda',
+    30: 'boss'
 }
 
-def parse_screen(img, targ, thres=0.8, scale=1):
-    """
-    parse all animals on board
-    """
-    img_tmp = cv2.resize(img, (0, 0), fx=scale, fy=scale)#, interpolation=cv2.INTER_NEAREST)
- 
-    res = cv2.matchTemplate(img_tmp, targ, cv2.TM_CCOEFF_NORMED)
-    
-    loc = np.where( res >= thres)
-    loc = list(zip(*loc[::-1]))
-    
-    while len(loc) == 0 and np.sum(np.array(img_tmp.shape) > np.array(targ.shape) + 20) == 2:
-        scale *= 0.99
-        img_tmp = cv2.resize(img_tmp, (0, 0), fx=scale, fy=scale)#, interpolation=cv2.INTER_NEAREST)
-        res = cv2.matchTemplate(img_tmp, targ, cv2.TM_CCOEFF_NORMED)
+filters = {
+    0: np.array([[0, 0, 0.5], [0, 0, 0.5], [0, 0, 0], [0, 0, 0], [0, 0, 0]]),
+    1: np.array([[0.5, 0, 0], [0.5, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0]]),
+    2: np.array([[0, 0, 0.5], [0, 0, 0], [0, 0, 0.5]]),
+    3: np.array([0, 0, 0, 0, 0, 0.5, 0.5]).reshape((1, -1))
+}
 
-        loc = np.where( res >= thres)
-        loc = list(zip(*loc[::-1]))
+dirs = {
+    0: np.array([0, 1]),
+    1: np.array([-1, 0]),
+    2: np.array([0, -1]),
+    3: np.array([1, 0])
+}
 
-    return loc, scale, img_tmp
-
-def locate_board_animals(img, target_dict, thres=0.8, scale=1):
-    """
-    locate the position of board at first time
-    """
+def locate_home_screen(img, screen, thres=0.8):
     min_h = min_w = 300000
     max_h = max_w = 0
-    for idx in animals:
-        target = target_dict[idx]
-        _, w, h = target.shape[::-1]
+    _, w, h = screen.shape[::-1]
+    loc = []
 
-        img_tmp = cv2.resize(img, (0, 0), fx=scale, fy=scale)#, interpolation=cv2.INTER_NEAREST)
-        res = cv2.matchTemplate(img_tmp, target, cv2.TM_CCOEFF_NORMED)
+    img_tmp = img
+    scale = 1.0
+    while len(loc) == 0 and np.sum(np.array(img_tmp.shape) > np.array(screen.shape) + 20) == 2:
+        scale -= 0.01
+        img_tmp = cv2.resize(img, (0, 0), fx=scale, fy=scale)
+        res = cv2.matchTemplate(img_tmp, screen, cv2.TM_CCOEFF_NORMED)
+
         loc = np.where( res >= thres)
         loc = list(zip(*loc[::-1]))
-        scale = 0.95
-        while len(loc) == 0 and np.sum(np.array(img_tmp.shape) > np.array(target.shape) + 20) == 2:
-            # scale *= 0.99
-            scale -= 0.01
-            img_tmp = cv2.resize(img_tmp, (0, 0), fx=scale, fy=scale)#, interpolation=cv2.INTER_NEAREST)
-            res = cv2.matchTemplate(img_tmp, target, cv2.TM_CCOEFF_NORMED)
-
-            loc = np.where( res >= thres)
-            loc = list(zip(*loc[::-1]))
-        
-        for pt in loc:
-            min_h = min(min_h, pt[1])
-            min_w = min(min_w, pt[0])
-            max_h = max(max_h, pt[1]+h)
-            max_w = max(max_w, pt[0]+w)
-
-        if ((max_h - min_h) // 28) >= 8 and ((max_w - min_w) // 28) >= 8:
-            break
     
-    return min_h, max_h, min_w, max_w, img_tmp.shape[:2][::-1]
-
-def locate_board(img, board, thres=0.8):
-    """
-    locate the position of board at second time
-    """
-    min_h = min_w = 300000
-    max_h = max_w = 0
-    scale = 1.01
-    res = cv2.matchTemplate(img, board, cv2.TM_CCOEFF_NORMED)
-    loc = np.where( res >= thres)
-    loc = list(zip(*loc[::-1]))
-    _, w, h = board.shape[::-1]
-    while len(loc) == 0 and np.sum(np.array(img.shape) > np.array(board.shape) + 20) == 2:
-        # scale *= 1.005
-        board = cv2.resize(board, (0, 0), fx=scale, fy=scale)#, interpolation=cv2.INTER_NEAREST)
-        _, w, h = board.shape[::-1]
-        res = cv2.matchTemplate(img, board, cv2.TM_CCOEFF_NORMED)
-        loc = np.where( res >= thres)
-        loc = list(zip(*loc[::-1]))
-
     for pt in loc:
         min_h = min(min_h, pt[1])
         min_w = min(min_w, pt[0])
         max_h = max(max_h, pt[1]+h)
         max_w = max(max_w, pt[0]+w)
     
-    return min_h, max_h, min_w, max_w
-
-transformer = None
-
-class Transformer:
-    def __init__(self, shape, shape2, min_h, max_h, min_w, max_w):
-        self.shape = shape
-        self.shape2 = shape2
-        self.min_h = min_h
-        self.max_h = max_h
-        self.min_w = min_w
-        self.max_w = max_w
+    return min_h, max_h, min_w, max_w, img_tmp.shape
 
 
-    def __call__(self, x):
-        # return cv2.resize(cv2.resize(x, self.shape), self.shape2)[self.min_h:self.max_h, self.min_w:self.max_w, :]
-        return x[self.min_h:self.max_h, self.min_w:self.max_w, :]
+def is_pattern_found(img, pattern, thres=0.8):
+    res = cv2.matchTemplate(img, pattern, cv2.TM_CCOEFF_NORMED)
+
+    loc = np.where( res >= thres)
+    loc = list(zip(*loc[::-1]))
+
+    if len(loc) > 0:
+        return True
+
+    return False
+
+def locate_animals(img, target_dict, thres=0.8, scale=1):
+    """
+    locate the position of board at first time
+    """
+    coord_dict = {}
+    coord_list = []
+    for idx in animals:
+        target = target_dict[idx]
+        w, h = target.shape[::-1]
+
+        res = cv2.matchTemplate(img, target, cv2.TM_CCOEFF_NORMED)
+        loc = np.where(res >= thres)
+        loc = list(zip(*loc))
+        boxes = [[int(ll[1]), int(ll[0]), w, h] for ll in loc]
+
+        indices = cv2.dnn.NMSBoxes(boxes, [.8] * len(boxes), 0.5, 0.5)
+        
+        loc = [loc[i[0]] for i in indices]
+        coord_dict[idx] = np.array(loc)
+        if len(loc) != 0:
+            coord_list.append(coord_dict[idx])
+
+    return coord_dict, coord_list
 
 
 def get_arr(img, target_dict):
-    global transformer
+    global top_left_icon
     arr = np.zeros((8, 8))
 
-    if transformer is None:
-        # print("no transformer")
-        min_h, max_h, min_w, max_w, shape = locate_board_animals(img, target_dict)
+    coord_dict, coord_list = locate_animals(img, target_dict)
+
+    if len(coord_list) != 0:
+        if len(coord_list) > 1:
+            res = np.concatenate(coord_list, 0)
+        else:
+            res = np.array(coord_list[0])
         
-        if max_h - min_h > 200 and max_w - min_w > 200:
-            board = cv2.resize(img, shape)
-            min_h, max_h, min_w, max_w, shape2 = locate_board_animals(board, target_dict)
-            board = cv2.resize(board, shape2)
-            board = board[min_h:max_h, min_w:max_w, :]
-            min_h, max_h, min_w, max_w = locate_board(img, board)
-            
-            transformer = Transformer(shape, shape2, min_h, max_h, min_w, max_w)
+        if res.shape[0] > 50: # 50 animals detected
+            if top_left_icon is None:
+                indice = np.argmin(np.sum(res, 1))
+                top_left_icon = res[indice]
 
-    else:
-        # print("transformer")
-        img_show = transformer(img)
-        cv2.imshow("transformer", img_show)
-        cv2.waitKey(1)
+            min_h, min_w = top_left_icon
 
+            for key in coord_dict:
+                if coord_dict[key].shape[0] == 0:
+                    continue
+                coord_dict[key][:, 0] -= min_h
+                coord_dict[key][:, 1] -= min_w
+                
+                coord = (coord_dict[key] / target_dict[2].shape[0]).astype(np.int32)
+                for co in range(coord.shape[0]):
+                    arr[tuple(coord[co])] = key
+        
     return arr
-
-filters = {
-    0: np.array([[0, 0, 0.5], [0, 0, 0.5], [0, 0, 0], [0, 0, 0], [0, 0, 0]]),
-    1: np.array([[0, 0, 0.5], [0, 0, 0], [0, 0, 0.5]]),
-    2: np.array([0, 0, 0, 0, 0, 0.5, 0.5]).reshape((1, -1))
-}
 
 
 def get_move(arr=None):
     """
-    0 for right, 1 for up, 2 for left, 3 for down
+    use correlate(convolve without reverse kernel order) to get all possible moves
     """
-    if arr is None:
-        arr = np.array([[ 3.,  8., 12., 12.,  5., 17.,  8., 17.],
-                        [ 8.,  5., 23., 23.,  5.,  5.,  2.,  3.],
-                        [ 5., 12., 23.,  3., 12., 23., 17., 23.],
-                        [ 8.,  0., 12.,  2., 23.,  3., 12.,  2.],
-                        [ 5., 17., 23.,  5.,  8.,  3.,  5.,  8.],
-                        [12.,  2.,  2., 17.,  2.,  5.,  2.,  2.],
-                        [17., 17.,  5.,  3., 12.,  8., 17.,  3.],
-                        [ 8., 12.,  5., 17., 12.,  2.,  5.,  3.]])
-
-    moves = [] # (coord, dir) ex ((3, 4), 1) means move (3, 4) to right
+    if arr is None or np.sum(arr!=0) < 55:
+        return []
+        
+    moves = [] # (coord, dir) ex ((3, 4), 0) means move (3, 4) to right, 0 right, 1 up, 2 left, 3 down
+    mask_moved = np.ones_like(arr)
     # detect 2 consecutive
     for key in filters:
         for rot in range(4):
             out = signal.correlate2d(arr, np.rot90(filters[key], rot), mode='same', fillvalue=100)
-            # print(arr)
-            # print(np.rot90(filters[key], rot))
-            # print(out==arr)
             
             mask = (out==arr).astype(np.float)
             tmp = np.stack(np.where(mask), -1)
             # print(tmp)
             for idx in range(tmp.shape[0]):
-                moves.append((tmp[idx], rot))
-            # from 2 consecutive, detect 3 consecutive
-    # print(moves)
+                if mask_moved[tuple(tmp[idx])] == 1:
+                    moves.append((tmp[idx], rot))
+                    mask_moved[tuple(tmp[idx])] = 0
+                    break
+        if len(moves) > 0: # early break to save computing resources
+            break
+    if len(moves) == 0:
+        icon_other = np.stack(np.where(arr==0), -1)
+        for idx in range(icon_other.shape[0]):
+            moves.append((icon_other[idx], np.random.randint(0, 4)))
+
     return moves
 
+
 def main():
-    scale = 1
-    arr = np.zeros((8, 8))
-    coord = {}
-    min_h = min_w = 300000
-    max_h = max_w = 0
-    for idx in animals:
-        # print("{}".format(animals[idx]))
-        img = cv2.imread("ttt.png")
-        # img = cv2.cvtColor(img_rgb, cv2.COLOR_BGR2HSV)
+    global top_left_icon
 
-        target = cv2.imread("icons/animals/{}.png".format(animals[idx]))
-        # target = cv2.imread("crop.png")
-        # target = cv2.resize(target, (0, 0), fx=0.5, fy=0.5)
-        # target = cv2.cvtColor(target, cv2.COLOR_BGR2HSV)
-        c, w, h = target.shape[::-1]
-
-        loc, scale, img = parse_screen(img, target, 0.75, 1)
-        img_show = img
-        coord[idx] = loc
-        
-        for pt in loc:
-            min_h = min(min_h, pt[1])
-            min_w = min(min_w, pt[0])
-            max_h = max(max_h, pt[1]+h)
-            max_w = max(max_w, pt[0]+w)
-            # cv2.rectangle(img_rgb, (int(round(pt[0]/scale)), int(round(pt[1]/scale))), (int(round((pt[0]+w) / scale)), int(round((pt[1]+h) / scale))), (0, 0, 255), 2)
-            cv2.rectangle(img_show, pt, (int(pt[0]) + w, int(pt[1]) + h), (0, 0, 255), 2)
-
-        cv2.imshow("res", img_show)
-        cv2.waitKey(0)
-
-    for key in coord:
-        for pt in coord[key]:
-            x = int(round((pt[0] - min_w)/28))
-            y = int(round((pt[1] - min_h)/28))
-            arr[y, x] = key
-    print(animals)
-    print(arr)
-
-def capture():
-    import time
+    # read all pattern images
     target_dict = {}
     for i in animals:
-        target_dict[i] = cv2.imread("icons/animals/{}.png".format(animals[i]))
-        
-    with mss.mss() as sct:
-        # Part of the screen to capture
-        monitor = {"top": 40, "left": 0, "width": 800, "height": 640, "mon": 0}
-        # monitor = {"mon": 1}
-        region = []
-        while True:
-            if keyboard.is_pressed('shift') and mouse.is_pressed(button='left') and len(region) == 0:
-                region.append(mouse.get_position())
-                print(region)
+        target_dict[i] = cv2.cvtColor(cv2.imread("icons/animals/{}.png".format(animals[i])), cv2.COLOR_BGR2GRAY)
+    home_screen = cv2.imread("icons/home.png")
+    round_start = cv2.cvtColor(cv2.imread("icons/round.png"), cv2.COLOR_BGR2GRAY)
+    win = cv2.cvtColor(cv2.imread("icons/win.png"), cv2.COLOR_BGR2GRAY)
+    battle = cv2.cvtColor(cv2.imread("icons/battle.png"), cv2.COLOR_BGR2GRAY)
+    home_icons = cv2.cvtColor(cv2.imread("icons/home_icons.png"), cv2.COLOR_BGR2GRAY)
 
-            if len(region) == 1 and keyboard.is_pressed('shift') and not mouse.is_pressed(button='left'):
-                region.append(mouse.get_position())
-                print(region)
+    game_mode = 0
+    battle_start_time = None
+    
+    with mss.mss() as sct:
+        min_h = min_w = 300000
+        max_h = max_w = 0
+        scale = 0
+        print("Scan for home screen")
+        while True:
+            # Get raw pixels from the screen, save it to a Numpy array
+            img = np.array(sct.grab(sct.monitors[1]))
+            min_h, max_h, min_w, max_w, shape = locate_home_screen(img[:, :, :3], home_screen)
+            if max_h != 0:
+                scale = img.shape[0] / shape[0]
                 break
 
-            if len(region) == 2:
-                # Get raw pixels from the screen, save it to a Numpy array
-                img = np.array(sct.grab(sct.monitors[1]))
-                cv2.imshow("test", img[region[0][0]:region[1][0], region[0][1]:region[1][1], :3])
-                cv2.waitKey(0)
-                arr = get_arr(img[:, :, :3], target_dict)
-                # print(arr)
+        if scale != 0:
+            print("Screen detected, standing by")
+            game_mode = 1
+            min_h = int(min_h * scale)
+            max_h = int(max_h * scale)
+            min_w = int(min_w * scale)
+            max_w = int(max_w * scale)
+            coord_base = np.array([min_h, min_w])
 
+            monitor = {"top": min_h, "left": min_w, "width": max_w-min_w, "height": max_h-min_h}
+
+            # get the correct size patterns
+            round_start = cv2.resize(round_start, (0, 0), fx=scale, fy=scale)
+            win = cv2.resize(win, (0, 0), fx=scale, fy=scale)
+            battle = cv2.resize(battle, (0, 0), fx=scale, fy=scale)
+            for i in target_dict:
+                target_dict[i] = cv2.resize(target_dict[i], (0, 0), fx=scale, fy=scale)
+            
+            icon_shape = np.array(target_dict[2].shape)
+
+            while True:
+                img = np.array(sct.grab(monitor))[:, :, :3]
+                img_gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+
+                if (game_mode == 1 or game_mode == 3) and is_pattern_found(img_gray, round_start):
+                    game_mode = 2
+                    battle_start_time = time.time()
+                    print("Start battle!!!")
+
+                elif game_mode == 3 and is_pattern_found(img_gray, win):
+                    game_mode = 1
+                    print("End battle")
+
+                elif game_mode == 2:
+                    # detect, parse, and command board
+                    arr = get_arr(img_gray, target_dict)
+                    print(arr)
+                    moves = get_move(arr)
+                    if len(moves) != 0:
+                        # move icons
+                        start, dd = moves[0]
+                        
+                        coord_start = (start * icon_shape + (icon_shape/2)  + top_left_icon + coord_base).astype(np.int32)
+                        coord_dest = (coord_start + dirs[dd] * icon_shape).astype(np.int32)
+
+                        pyautogui.moveTo(coord_start[1], coord_start[0])
+                        pyautogui.dragTo(coord_dest[1], coord_dest[0], button='left')
+
+                    # detect if cur round is over
+                    if time.time()-battle_start_time > 29:
+                        if is_pattern_found(img_gray, battle):
+                            game_mode = 3
+                            print("Pause battle")
+                        elif is_pattern_found(img_gray, home_icons):
+                            game_mode = 1
+                            print("Home icons detected")
+
+                elif game_mode != 1 and is_pattern_found(img_gray, home_icons):
+                    game_mode = 1
+
+                time.sleep(0.005)
+                    
 
 if __name__ == '__main__':
-    capture()
-    # get_move()
-    # main()
+    main()
