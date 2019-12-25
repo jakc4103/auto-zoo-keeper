@@ -145,6 +145,7 @@ def get_move(arr=None):
             for idx in range(tmp.shape[0]):
                 if mask_moved[tuple(tmp[idx])] == 1:
                     moves.append((tmp[idx], rot))
+                    mask_moved[tuple(tmp[idx])] = 0
                     mask_moved[tuple(tmp[idx]+dirs[rot])] = 0
                     arr[tuple(tmp[idx])], arr[tuple(tmp[idx]+dirs[rot])] = arr[tuple(tmp[idx]+dirs[rot])], arr[tuple(tmp[idx])]
                     arr[tuple(tmp[idx]+dirs[rot])] = 0
