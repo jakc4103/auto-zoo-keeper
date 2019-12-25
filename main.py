@@ -136,6 +136,7 @@ def get_move(arr=None):
     # detect 2 consecutive
     for key in filters:
         for rot in range(4):
+            early_break = False
             out = signal.correlate2d(arr, np.rot90(filters[key], rot), mode='same', fillvalue=100)
             
             mask = (out==arr).astype(np.float)
@@ -144,12 +145,35 @@ def get_move(arr=None):
             for idx in range(tmp.shape[0]):
                 if mask_moved[tuple(tmp[idx])] == 1:
                     moves.append((tmp[idx], rot))
-                    mask_moved[tuple(tmp[idx])] = 0
                     mask_moved[tuple(tmp[idx]+dirs[rot])] = 0
                     arr[tuple(tmp[idx])], arr[tuple(tmp[idx]+dirs[rot])] = arr[tuple(tmp[idx]+dirs[rot])], arr[tuple(tmp[idx])]
+                    arr[tuple(tmp[idx]+dirs[rot])] = 0
+                    if key == 3:
+                        mask_moved[tuple(tmp[idx]+dirs[rot]*2)] = 0
+                        mask_moved[tuple(tmp[idx]+dirs[rot]*3)] = 0
+                        arr[tuple(tmp[idx]+dirs[rot]*2)] = 0
+                        arr[tuple(tmp[idx]+dirs[rot]*3)] = 0
+                    elif key == 2:
+                        mask_moved[tuple(tmp[idx]+dirs[rot]+dirs[(rot+1)%4])] = 0
+                        mask_moved[tuple(tmp[idx]+dirs[rot]+dirs[(rot+3)%4])] = 0
+                        arr[tuple(tmp[idx]+dirs[rot]+dirs[(rot+1)%4])] = 0
+                        arr[tuple(tmp[idx]+dirs[rot]+dirs[(rot+3)%4])] = 0
+                    elif key == 0:
+                        mask_moved[tuple(tmp[idx]+dirs[rot]+dirs[(rot+1)%4])] = 0
+                        mask_moved[tuple(tmp[idx]+dirs[rot]+2*dirs[(rot+1)%4])] = 0
+                        arr[tuple(tmp[idx]+dirs[rot]+dirs[(rot+1)%4])] = 0
+                        arr[tuple(tmp[idx]+dirs[rot]+2*dirs[(rot+1)%4])] = 0
+                    else:
+                        mask_moved[tuple(tmp[idx]+dirs[rot]+dirs[(rot+3)%4])] = 0
+                        mask_moved[tuple(tmp[idx]+dirs[rot]+2*dirs[(rot+3)%4])] = 0
+                        arr[tuple(tmp[idx]+dirs[rot]+dirs[(rot+3)%4])] = 0
+                        arr[tuple(tmp[idx]+dirs[rot]+2*dirs[(rot+3)%4])] = 0
+                    early_break = True
                     break
+            if early_break:
+                break
                     
-        if len(moves) > 10: # early break to save computing resources
+        if len(moves) > 5: # early break to save computing resources
             break
 
     if len(moves) == 0:
@@ -225,7 +249,7 @@ def main():
                 elif game_mode == 2:
                     # detect, parse, and command board
                     arr = get_arr(img_gray, target_dict)
-                    print(arr)
+                    # print(arr)
                     moves = get_move(arr)
                     if len(moves) != 0:
                         # move icons
@@ -233,7 +257,7 @@ def main():
                         for idx in range(len(moves)):
                             start, dd = moves[idx]
                             
-                            coord_start = (start * icon_shape + (icon_shape/2)  + top_left_icon + coord_base).astype(np.int32)
+                            coord_start = (start * icon_shape + (icon_shape*2/3)  + top_left_icon + coord_base).astype(np.int32)
                             coord_dest = (coord_start + dirs[dd] * icon_shape).astype(np.int32)
 
                             pyautogui.moveTo(coord_start[1], coord_start[0])
