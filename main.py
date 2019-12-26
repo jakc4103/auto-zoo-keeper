@@ -4,6 +4,9 @@ import numpy as np
 from scipy import signal
 import pyautogui
 import time
+import argparse
+from multiprocessing import Queue, Process
+from queue import Empty
 
 top_left_icon = None
 
@@ -31,6 +34,11 @@ dirs = {
     2: np.array([0, -1]),
     3: np.array([1, 0])
 }
+
+def get_argument():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--mp", action="store_true", help="Whether to use multiprocessing for better icon moving")
+    return parser.parse_args()
 
 def locate_home_screen(img, screen, thres=0.8):
     min_h = min_w = 300000
@@ -143,32 +151,32 @@ def get_move(arr=None):
             tmp = np.stack(np.where(mask), -1)
             # print(tmp)
             for idx in range(tmp.shape[0]):
-                if mask_moved[tuple(tmp[idx])] == 1:
+                if mask_moved[tuple(tmp[idx])] == 1 and mask_moved[tuple(tmp[idx]+dirs[rot])] == 1 and arr[tuple(tmp[idx]+dirs[rot])] != -1:
                     moves.append((tmp[idx], rot))
-                    mask_moved[tuple(tmp[idx])] = 0
+                    # mask_moved[tuple(tmp[idx])] = 0
                     mask_moved[tuple(tmp[idx]+dirs[rot])] = 0
                     arr[tuple(tmp[idx])], arr[tuple(tmp[idx]+dirs[rot])] = arr[tuple(tmp[idx]+dirs[rot])], arr[tuple(tmp[idx])]
                     arr[tuple(tmp[idx]+dirs[rot])] = 0
                     if key == 3:
                         mask_moved[tuple(tmp[idx]+dirs[rot]*2)] = 0
                         mask_moved[tuple(tmp[idx]+dirs[rot]*3)] = 0
-                        arr[tuple(tmp[idx]+dirs[rot]*2)] = 0
-                        arr[tuple(tmp[idx]+dirs[rot]*3)] = 0
+                        arr[tuple(tmp[idx]+dirs[rot]*2)] = 100
+                        arr[tuple(tmp[idx]+dirs[rot]*3)] = 100
                     elif key == 2:
                         mask_moved[tuple(tmp[idx]+dirs[rot]+dirs[(rot+1)%4])] = 0
                         mask_moved[tuple(tmp[idx]+dirs[rot]+dirs[(rot+3)%4])] = 0
-                        arr[tuple(tmp[idx]+dirs[rot]+dirs[(rot+1)%4])] = 0
-                        arr[tuple(tmp[idx]+dirs[rot]+dirs[(rot+3)%4])] = 0
+                        arr[tuple(tmp[idx]+dirs[rot]+dirs[(rot+1)%4])] = 100
+                        arr[tuple(tmp[idx]+dirs[rot]+dirs[(rot+3)%4])] = 100
                     elif key == 0:
                         mask_moved[tuple(tmp[idx]+dirs[rot]+dirs[(rot+1)%4])] = 0
                         mask_moved[tuple(tmp[idx]+dirs[rot]+2*dirs[(rot+1)%4])] = 0
-                        arr[tuple(tmp[idx]+dirs[rot]+dirs[(rot+1)%4])] = 0
-                        arr[tuple(tmp[idx]+dirs[rot]+2*dirs[(rot+1)%4])] = 0
+                        arr[tuple(tmp[idx]+dirs[rot]+dirs[(rot+1)%4])] = 100
+                        arr[tuple(tmp[idx]+dirs[rot]+2*dirs[(rot+1)%4])] = 100
                     else:
                         mask_moved[tuple(tmp[idx]+dirs[rot]+dirs[(rot+3)%4])] = 0
                         mask_moved[tuple(tmp[idx]+dirs[rot]+2*dirs[(rot+3)%4])] = 0
-                        arr[tuple(tmp[idx]+dirs[rot]+dirs[(rot+3)%4])] = 0
-                        arr[tuple(tmp[idx]+dirs[rot]+2*dirs[(rot+3)%4])] = 0
+                        arr[tuple(tmp[idx]+dirs[rot]+dirs[(rot+3)%4])] = 100
+                        arr[tuple(tmp[idx]+dirs[rot]+2*dirs[(rot+3)%4])] = 100
                     early_break = True
                     break
             if early_break:
@@ -184,10 +192,43 @@ def get_move(arr=None):
 
     return moves
 
+def move_icon(q):
+    # move_array = np.zeros((8, 8))
+    move_dict = {}
+    idx_list = []
+    while True:
+        try:
+            out = q.get(block=False)
+            if out is None:
+                break
+            elif type(out) == str and out == 'pause':
+                move_dict = {}
+                idx_list = []
+                continue
+
+            for start, coord_start, coord_dest in out:
+                idx = start[0] * 8 + start[1]
+                move_dict[idx] = (coord_start, coord_dest)
+                if idx not in idx_list:
+                    idx_list.append(idx)
+
+        except Empty:
+            pass
+
+        if len(idx_list) > 0:
+            idx = np.random.randint(0, len(idx_list))
+            idx = idx_list.pop(idx)
+            coord_start, coord_dest = move_dict.pop(idx)
+            
+            pyautogui.moveTo(coord_start[1], coord_start[0])
+            pyautogui.dragTo(coord_dest[1], coord_dest[0], button='left')
+        
+        time.sleep(0.001)
+
 
 def main():
     global top_left_icon
-
+    args = get_argument()
     # read all pattern images
     target_dict = {}
     for i in animals:
@@ -213,75 +254,89 @@ def main():
             if max_h != 0:
                 scale = img.shape[0] / shape[0]
                 break
+        try:
+            if scale != 0:
+                print("Screen detected, standing by")
+                game_mode = 1
+                min_h = int(round(min_h * scale)) - 5
+                max_h = int(round(max_h * scale)) + 5
+                min_w = int(round(min_w * scale)) - 5
+                max_w = int(round(max_w * scale)) + 5
+                coord_base = np.array([min_h, min_w])
 
-        if scale != 0:
-            print("Screen detected, standing by")
-            game_mode = 1
-            min_h = int(round(min_h * scale)) - 5
-            max_h = int(round(max_h * scale)) + 5
-            min_w = int(round(min_w * scale)) - 5
-            max_w = int(round(max_w * scale)) + 5
-            coord_base = np.array([min_h, min_w])
+                monitor = {"top": min_h, "left": min_w, "width": max_w-min_w, "height": max_h-min_h}
 
-            monitor = {"top": min_h, "left": min_w, "width": max_w-min_w, "height": max_h-min_h}
+                # start second process if specified
+                if args.mp:
+                    print("Start moving process...")
+                    q = Queue(30) # maximum 30 moves
+                    process_move = Process(target=move_icon, args=(q,))
+                    process_move.start()
 
-            # get the correct size patterns
-            round_start = cv2.resize(round_start, (0, 0), fx=scale, fy=scale)
-            win = cv2.resize(win, (0, 0), fx=scale, fy=scale)
-            battle = cv2.resize(battle, (0, 0), fx=scale, fy=scale)
-            for i in target_dict:
-                target_dict[i] = cv2.resize(target_dict[i], (0, 0), fx=scale, fy=scale)
-            
-            icon_shape = np.array(target_dict[2].shape)
+                # get the correct size patterns
+                round_start = cv2.resize(round_start, (0, 0), fx=scale, fy=scale)
+                win = cv2.resize(win, (0, 0), fx=scale, fy=scale)
+                battle = cv2.resize(battle, (0, 0), fx=scale, fy=scale)
+                for i in target_dict:
+                    target_dict[i] = cv2.resize(target_dict[i], (0, 0), fx=scale, fy=scale)
+                
+                icon_shape = np.array(target_dict[2].shape)
 
-            while True:
-                img = np.array(sct.grab(monitor))[:, :, :3]
-                img_gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+                while True:
+                    img = np.array(sct.grab(monitor))[:, :, :3]
+                    img_gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
-                if (game_mode == 1 or game_mode == 3) and is_pattern_found(img_gray, round_start):
-                    game_mode = 2
-                    battle_start_time = time.time()
-                    print("Start battle!!!")
+                    if (game_mode == 1 or game_mode == 3) and is_pattern_found(img_gray, round_start):
+                        game_mode = 2
+                        battle_start_time = time.time()
+                        print("Start battle!!!")
 
-                elif game_mode == 3 and is_pattern_found(img_gray, win):
-                    game_mode = 1
-                    print("End battle, standing by")
+                    elif game_mode == 3 and is_pattern_found(img_gray, win):
+                        game_mode = 1
+                        print("End battle, standing by")
 
-                elif game_mode == 2:
-                    # detect, parse, and command board
-                    arr = get_arr(img_gray, target_dict)
-                    # print(arr)
-                    moves = get_move(arr)
-                    if len(moves) != 0:
-                        # move icons
-                        # idx = np.random.randint(0, len(moves))
-                        for idx in range(len(moves)):
-                            start, dd = moves[idx]
-                            
-                            coord_start = (start * icon_shape + (icon_shape*2/3)  + top_left_icon + coord_base).astype(np.int32)
-                            coord_dest = (coord_start + dirs[dd] * icon_shape).astype(np.int32)
+                    elif game_mode == 2:
+                        # detect, parse, and command board
+                        arr = get_arr(img_gray, target_dict)
+                        # print(arr)
+                        moves = get_move(arr)
+                        if len(moves) != 0:
+                            if args.mp:
+                                coord_list = []
+                            for idx in range(len(moves)):
+                                start, dd = moves[idx]
+                                
+                                coord_start = (start * icon_shape + (icon_shape*2/3)  + top_left_icon + coord_base).astype(np.int32)
+                                coord_dest = (coord_start + dirs[dd] * icon_shape).astype(np.int32)
+                                if args.mp:
+                                    coord_list.append((start, coord_start, coord_dest))
+                                else:
+                                    pyautogui.moveTo(coord_start[1], coord_start[0])
+                                    pyautogui.dragTo(coord_dest[1], coord_dest[0], button='left')
 
-                            pyautogui.moveTo(coord_start[1], coord_start[0])
-                            pyautogui.dragTo(coord_dest[1], coord_dest[0], button='left')
-                            # print(moves[idx])
-                            # print("start", coord_start)
-                            # print("end", coord_dest)
-                            # print(pyautogui.position())
-                            # print("="*100)
+                            if args.mp:
+                                q.put(coord_list)
 
-                    # detect if cur round is over
-                    if time.time()-battle_start_time > 29:
-                        if is_pattern_found(img_gray, battle):
-                            game_mode = 3
-                            print("Pause battle")
-                        elif is_pattern_found(img_gray, home_icons):
-                            game_mode = 1
-                            print("Home icons detected, standing by")
+                        # detect if cur round is over
+                        if time.time()-battle_start_time > 29:
+                            if is_pattern_found(img_gray, battle):
+                                game_mode = 3
+                                if args.mp:
+                                    q.put('pause')
+                                print("Pause battle")
+                            elif is_pattern_found(img_gray, home_icons):
+                                game_mode = 1
+                                print("Home icons detected, standing by")
 
-                elif game_mode != 1 and is_pattern_found(img_gray, home_icons):
-                    game_mode = 1
+                    elif game_mode != 1 and is_pattern_found(img_gray, home_icons):
+                        game_mode = 1
 
-                time.sleep(0.005)
+                    time.sleep(0.005)
+
+        except KeyboardInterrupt:
+            if args.mp:
+                q.put(None)
+                process_move.join()
                     
 
 if __name__ == '__main__':
