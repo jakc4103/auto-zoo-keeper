@@ -141,6 +141,7 @@ def get_move(arr=None):
         
     moves = [] # (coord, dir) ex ((3, 4), 0) means move (3, 4) to right, 0 right, 1 up, 2 left, 3 down
     mask_moved = np.ones_like(arr)
+    replace_value = 0
     # detect 2 consecutive
     for key in filters:
         for rot in range(4):
@@ -151,32 +152,34 @@ def get_move(arr=None):
             tmp = np.stack(np.where(mask), -1)
             # print(tmp)
             for idx in range(tmp.shape[0]):
-                if mask_moved[tuple(tmp[idx])] == 1 and mask_moved[tuple(tmp[idx]+dirs[rot])] == 1 and arr[tuple(tmp[idx]+dirs[rot])] != -1:
+                # if mask_moved[tuple(tmp[idx])] == 1:
+                if mask_moved[tuple(tmp[idx])] == 1 and mask_moved[tuple(tmp[idx]+dirs[rot])] == 1:
+                # if mask_moved[tuple(tmp[idx])] == 1 and mask_moved[tuple(tmp[idx]+dirs[rot])] == 1 and arr[tuple(tmp[idx]+dirs[rot])] != replace_value:
                     moves.append((tmp[idx], rot))
                     # mask_moved[tuple(tmp[idx])] = 0
                     mask_moved[tuple(tmp[idx]+dirs[rot])] = 0
                     arr[tuple(tmp[idx])], arr[tuple(tmp[idx]+dirs[rot])] = arr[tuple(tmp[idx]+dirs[rot])], arr[tuple(tmp[idx])]
-                    arr[tuple(tmp[idx]+dirs[rot])] = 0
+                    arr[tuple(tmp[idx]+dirs[rot])] = replace_value
                     if key == 3:
                         mask_moved[tuple(tmp[idx]+dirs[rot]*2)] = 0
                         mask_moved[tuple(tmp[idx]+dirs[rot]*3)] = 0
-                        arr[tuple(tmp[idx]+dirs[rot]*2)] = 100
-                        arr[tuple(tmp[idx]+dirs[rot]*3)] = 100
+                        arr[tuple(tmp[idx]+dirs[rot]*2)] = replace_value
+                        arr[tuple(tmp[idx]+dirs[rot]*3)] = replace_value
                     elif key == 2:
                         mask_moved[tuple(tmp[idx]+dirs[rot]+dirs[(rot+1)%4])] = 0
                         mask_moved[tuple(tmp[idx]+dirs[rot]+dirs[(rot+3)%4])] = 0
-                        arr[tuple(tmp[idx]+dirs[rot]+dirs[(rot+1)%4])] = 100
-                        arr[tuple(tmp[idx]+dirs[rot]+dirs[(rot+3)%4])] = 100
+                        arr[tuple(tmp[idx]+dirs[rot]+dirs[(rot+1)%4])] = replace_value
+                        arr[tuple(tmp[idx]+dirs[rot]+dirs[(rot+3)%4])] = replace_value
                     elif key == 0:
                         mask_moved[tuple(tmp[idx]+dirs[rot]+dirs[(rot+1)%4])] = 0
                         mask_moved[tuple(tmp[idx]+dirs[rot]+2*dirs[(rot+1)%4])] = 0
-                        arr[tuple(tmp[idx]+dirs[rot]+dirs[(rot+1)%4])] = 100
-                        arr[tuple(tmp[idx]+dirs[rot]+2*dirs[(rot+1)%4])] = 100
+                        arr[tuple(tmp[idx]+dirs[rot]+dirs[(rot+1)%4])] = replace_value
+                        arr[tuple(tmp[idx]+dirs[rot]+2*dirs[(rot+1)%4])] = replace_value
                     else:
                         mask_moved[tuple(tmp[idx]+dirs[rot]+dirs[(rot+3)%4])] = 0
                         mask_moved[tuple(tmp[idx]+dirs[rot]+2*dirs[(rot+3)%4])] = 0
-                        arr[tuple(tmp[idx]+dirs[rot]+dirs[(rot+3)%4])] = 100
-                        arr[tuple(tmp[idx]+dirs[rot]+2*dirs[(rot+3)%4])] = 100
+                        arr[tuple(tmp[idx]+dirs[rot]+dirs[(rot+3)%4])] = replace_value
+                        arr[tuple(tmp[idx]+dirs[rot]+2*dirs[(rot+3)%4])] = replace_value
                     early_break = True
                     break
             if early_break:
