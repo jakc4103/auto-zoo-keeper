@@ -5,8 +5,9 @@ from scipy import signal
 import pyautogui
 import time
 import argparse
-from multiprocessing import Queue, Process
+from multiprocessing import Queue, Process, Array
 from queue import Empty
+import ctypes
 
 top_left_icon = None
 
@@ -144,7 +145,7 @@ def get_move(arr=None):
     replace_value = 0
     # detect 2 consecutive
     for key in filters:
-        for rot in range(4):
+        for rot in [1, 3, 0, 2]:
             early_break = False
             out = signal.correlate2d(arr, np.rot90(filters[key], rot), mode='same', fillvalue=100)
             
@@ -195,40 +196,125 @@ def get_move(arr=None):
 
     return moves
 
-def move_icon(q):
-    # move_array = np.zeros((8, 8))
-    move_dict = {}
-    idx_list = []
+def move_icon(share_arr, q, icon_shape, coord_base):
+    battle_mode = False
+    top_left_icon = None
+
+    def control(moves, icon_shape, top_left_icon, coord_base):
+        prev_move = None
+        moved = True
+        counter = 0
+        for mm in moves:
+            if counter > 3:
+                break
+            if prev_move is not None and np.sum(np.abs(mm[0] - prev_move[0])) < 3:
+                prev_move = mm
+                continue 
+            start, dd = mm #moves[-1]
+            
+            coord_start = (start * icon_shape + (icon_shape*2/3)  + top_left_icon + coord_base).astype(np.int32)
+            coord_dest = (coord_start + dirs[dd] * icon_shape).astype(np.int32)
+
+            pyautogui.moveTo(coord_start[1], coord_start[0])
+            pyautogui.dragTo(coord_dest[1], coord_dest[0], button='left')
+
+            prev_move = mm
+            counter += 1
+
+        return moved
+
+    with share_arr.get_lock(): # synchronize access
+        arr = np.frombuffer(share_arr.get_obj()).reshape(8, 8) # update arr
+
     while True:
         try:
             out = q.get(block=False)
-            if out is None:
-                break
-            elif type(out) == str and out == 'pause':
-                move_dict = {}
-                idx_list = []
-                continue
+            if type(out) == str:
+                if out == 'battle':
+                    battle_mode = True
+                elif out == 'pause':
+                    battle_mode = False
 
-            for start, coord_start, coord_dest in out:
-                idx = start[0] * 8 + start[1]
-                move_dict[idx] = (coord_start, coord_dest)
-                if idx not in idx_list:
-                    idx_list.append(idx)
+            elif type(out) == np.ndarray:
+                top_left_icon = out
+
+            elif out is None:
+                break
 
         except Empty:
             pass
 
-        if len(idx_list) > 0:
-            idx = np.random.randint(0, len(idx_list))
-            idx = idx_list.pop(idx)
-            coord_start, coord_dest = move_dict.pop(idx)
-            
-            pyautogui.moveTo(coord_start[1], coord_start[0])
-            pyautogui.dragTo(coord_dest[1], coord_dest[0], button='left')
-        
-        time.sleep(0.001)
+        if not battle_mode or top_left_icon is None:
+            continue
 
+        moved = False
+        # detect 2 consecutive
+        for key in filters:
+            for rot in [1, 3, 0, 2]:
+                
+                moves = []
+                # early_break = False
+                with share_arr.get_lock():
+                    arr_copy = arr.copy()
+                out = signal.correlate2d(arr_copy, np.rot90(filters[key], rot), mode='same', fillvalue=100)
+                
+                mask = (out==arr_copy).astype(np.float) * (out!=0).astype(np.float)
+                tmp = np.stack(np.where(mask), -1)
+                # print(tmp)
+                for idx in range(tmp.shape[0]):
+                    moves.append((tmp[idx], rot))
 
+                    break
+                
+                # move icons here
+                if len(moves) > 0:
+                    prev_move = None
+                    moved = True
+                    counter = 0
+                    for mm in moves:
+                        if counter > 3:
+                            break
+                        if prev_move is not None and np.sum(np.abs(mm[0] - prev_move[0])) < 3:
+                            prev_move = mm
+                            continue 
+                        start, dd = mm #moves[-1]
+                        
+                        coord_start = (start * icon_shape + (icon_shape*2/3)  + top_left_icon + coord_base).astype(np.int32)
+                        coord_dest = (coord_start + dirs[dd] * icon_shape).astype(np.int32)
+
+                        pyautogui.moveTo(coord_start[1], coord_start[0])
+                        pyautogui.dragTo(coord_dest[1], coord_dest[0], button='left')
+
+                        prev_move = mm
+                        counter += 1
+
+        if not moved:
+            icon_other = np.stack(np.where(arr==0), -1)
+            moves = []
+            if icon_other.shape[0] < 6:
+                for idx in range(icon_other.shape[0]):
+                    moves.append((icon_other[idx], np.random.randint(0, 4)))
+
+                prev_move = None
+                moved = True
+                counter = 0
+                for mm in moves:
+                    if counter > 3:
+                        break
+                    if prev_move is not None and np.sum(np.abs(mm[0] - prev_move[0])) < 3:
+                        prev_move = mm
+                        continue 
+                    start, dd = mm #moves[-1]
+                    
+                    coord_start = (start * icon_shape + (icon_shape*2/3)  + top_left_icon + coord_base).astype(np.int32)
+                    coord_dest = (coord_start + dirs[dd] * icon_shape).astype(np.int32)
+
+                    pyautogui.moveTo(coord_start[1], coord_start[0])
+                    pyautogui.dragTo(coord_dest[1], coord_dest[0], button='left')
+
+                    prev_move = mm
+                    counter += 1
+                    
 def main():
     global top_left_icon
     args = get_argument()
@@ -244,6 +330,9 @@ def main():
 
     game_mode = 0
     battle_start_time = None
+
+    if args.mp:
+        top_left_flag = True
 
     with mss.mss() as sct:
         min_h = min_w = 300000
@@ -269,13 +358,6 @@ def main():
 
                 monitor = {"top": min_h, "left": min_w, "width": max_w-min_w, "height": max_h-min_h}
 
-                # start second process if specified
-                if args.mp:
-                    print("Start moving process...")
-                    q = Queue(30) # maximum 30 moves
-                    process_move = Process(target=move_icon, args=(q,))
-                    process_move.start()
-
                 # get the correct size patterns
                 round_start = cv2.resize(round_start, (0, 0), fx=scale, fy=scale)
                 win = cv2.resize(win, (0, 0), fx=scale, fy=scale)
@@ -285,6 +367,15 @@ def main():
                 
                 icon_shape = np.array(target_dict[2].shape)
 
+                # start second process if specified
+                if args.mp:
+                    print("Start moving process...")
+                    q = Queue(5) # maximum 30 moves
+                    shared_arr = Array(ctypes.c_double, 64)
+                    np_arr = np.frombuffer(shared_arr.get_obj())
+                    process_move = Process(target=move_icon, args=(shared_arr, q, icon_shape, coord_base, ))
+                    process_move.start()
+
                 while True:
                     img = np.array(sct.grab(monitor))[:, :, :3]
                     img_gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
@@ -293,32 +384,36 @@ def main():
                         game_mode = 2
                         battle_start_time = time.time()
                         print("Start battle!!!")
+                        if args.mp:
+                            q.put("battle")
 
                     elif game_mode == 3 and is_pattern_found(img_gray, win):
                         game_mode = 1
                         print("End battle, standing by")
+                        if args.mp:
+                            q.put("pause")
 
                     elif game_mode == 2:
                         # detect, parse, and command board
                         arr = get_arr(img_gray, target_dict)
-                        # print(arr)
-                        moves = get_move(arr)
-                        if len(moves) != 0:
-                            if args.mp:
-                                coord_list = []
-                            for idx in range(len(moves)):
-                                start, dd = moves[idx]
-                                
-                                coord_start = (start * icon_shape + (icon_shape*2/3)  + top_left_icon + coord_base).astype(np.int32)
-                                coord_dest = (coord_start + dirs[dd] * icon_shape).astype(np.int32)
-                                if args.mp:
-                                    coord_list.append((start, coord_start, coord_dest))
-                                else:
+                        if args.mp:
+                            if top_left_icon is not None and top_left_flag:
+                                top_left_flag = False
+                                q.put(top_left_icon)
+                            with shared_arr.get_lock():
+                                np_arr[:] = arr.reshape(-1)
+
+                        else:
+                            moves = get_move(arr)
+                            if len(moves) != 0:
+                                for idx in range(len(moves)):
+                                    start, dd = moves[idx]
+                                    
+                                    coord_start = (start * icon_shape + (icon_shape*2/3)  + top_left_icon + coord_base).astype(np.int32)
+                                    coord_dest = (coord_start + dirs[dd] * icon_shape).astype(np.int32)
+
                                     pyautogui.moveTo(coord_start[1], coord_start[0])
                                     pyautogui.dragTo(coord_dest[1], coord_dest[0], button='left')
-
-                            if args.mp:
-                                q.put(coord_list)
 
                         # detect if cur round is over
                         if time.time()-battle_start_time > 29:
