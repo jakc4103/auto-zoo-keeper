@@ -63,4 +63,4 @@ For iOS, I did not found any solutions to control the phone over projected scree
     scipy  
 
 ## Acknowledgements
-https://play.google.com/store/apps/details?id=jp.kiteretsu.zookeeperbattle.google&hl=zh_TW
+https://play.google.com/store/apps/details?id=jp.kiteretsu.zookeeperbattle.google
