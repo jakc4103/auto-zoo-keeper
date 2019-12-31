@@ -200,74 +200,79 @@ def move_icon(share_arr, q, icon_shape, coord_base):
     battle_mode = False
     top_left_icon = None
 
-    def control(moves, icon_shape, top_left_icon, coord_base):
-        prev_move = None
-        moved = True
-        counter = 0
-        for mm in moves:
-            if counter > 3:
-                break
-            if prev_move is not None and np.sum(np.abs(mm[0] - prev_move[0])) < 3:
-                prev_move = mm
-                continue 
-            start, dd = mm #moves[-1]
-            
-            coord_start = (start * icon_shape + (icon_shape*2/3)  + top_left_icon + coord_base).astype(np.int32)
-            coord_dest = (coord_start + dirs[dd] * icon_shape).astype(np.int32)
-
-            pyautogui.moveTo(coord_start[1], coord_start[0])
-            pyautogui.dragTo(coord_dest[1], coord_dest[0], button='left')
-
-            prev_move = mm
-            counter += 1
-
-        return moved
-
     with share_arr.get_lock(): # synchronize access
         arr = np.frombuffer(share_arr.get_obj()).reshape(8, 8) # update arr
 
-    while True:
-        try:
-            out = q.get(block=False)
-            if type(out) == str:
-                if out == 'battle':
-                    battle_mode = True
-                elif out == 'pause':
-                    battle_mode = False
+    try:
+        while True:
+            try:
+                out = q.get(block=False)
+                if type(out) == str:
+                    if out == 'battle':
+                        battle_mode = True
+                    elif out == 'pause':
+                        battle_mode = False
 
-            elif type(out) == np.ndarray:
-                top_left_icon = out
+                elif type(out) == np.ndarray:
+                    top_left_icon = out
 
-            elif out is None:
-                break
-
-        except Empty:
-            pass
-
-        if not battle_mode or top_left_icon is None:
-            continue
-
-        moved = False
-        # detect 2 consecutive
-        for key in filters:
-            for rot in [1, 3, 0, 2]:
-                
-                moves = []
-                # early_break = False
-                with share_arr.get_lock():
-                    arr_copy = arr.copy()
-                out = signal.correlate2d(arr_copy, np.rot90(filters[key], rot), mode='same', fillvalue=100)
-                
-                mask = (out==arr_copy).astype(np.float) * (out!=0).astype(np.float)
-                tmp = np.stack(np.where(mask), -1)
-                # print(tmp)
-                for idx in range(tmp.shape[0]):
-                    moves.append((tmp[idx], rot))
-
+                elif out is None:
                     break
-                
-                # move icons here
-                if len(moves) > 0:
+
+            except Empty:
+                pass
+
+            if not battle_mode or top_left_icon is None:
+                continue
+
+            moved = False
+            # detect 2 consecutive
+            for key in filters:
+                for rot in [1, 3, 0, 2]:
+                    
+                    moves = []
+                    # early_break = False
+                    with share_arr.get_lock():
+                        arr_copy = arr.copy()
+                    out = signal.correlate2d(arr_copy, np.rot90(filters[key], rot), mode='same', fillvalue=100)
+                    
+                    mask = (out==arr_copy).astype(np.float) * (out!=0).astype(np.float)
+                    tmp = np.stack(np.where(mask), -1)
+                    # print(tmp)
+                    for idx in range(tmp.shape[0]):
+                        moves.append((tmp[idx], rot))
+
+                        break
+                    
+                    # move icons here
+                    if len(moves) > 0:
+                        prev_move = None
+                        moved = True
+                        counter = 0
+                        for mm in moves:
+                            if counter > 3:
+                                break
+                            if prev_move is not None and np.sum(np.abs(mm[0] - prev_move[0])) < 3:
+                                prev_move = mm
+                                continue 
+                            start, dd = mm #moves[-1]
+                            
+                            coord_start = (start * icon_shape + (icon_shape*2/3)  + top_left_icon + coord_base).astype(np.int32)
+                            coord_dest = (coord_start + dirs[dd] * icon_shape).astype(np.int32)
+
+                            pyautogui.moveTo(coord_start[1], coord_start[0])
+                            pyautogui.dragTo(coord_dest[1], coord_dest[0], button='left')
+
+                            prev_move = mm
+                            counter += 1
+
+            if not moved:
+                icon_other = np.stack(np.where(arr==0), -1)
+                moves = []
+                if icon_other.shape[0] < 6:
+                    for idx in range(icon_other.shape[0]):
+                        moves.append((icon_other[idx], np.random.randint(0, 4)))
+
                     prev_move = None
                     moved = True
                     counter = 0
@@ -287,33 +292,8 @@ def move_icon(share_arr, q, icon_shape, coord_base):
 
                         prev_move = mm
                         counter += 1
-
-        if not moved:
-            icon_other = np.stack(np.where(arr==0), -1)
-            moves = []
-            if icon_other.shape[0] < 6:
-                for idx in range(icon_other.shape[0]):
-                    moves.append((icon_other[idx], np.random.randint(0, 4)))
-
-                prev_move = None
-                moved = True
-                counter = 0
-                for mm in moves:
-                    if counter > 3:
-                        break
-                    if prev_move is not None and np.sum(np.abs(mm[0] - prev_move[0])) < 3:
-                        prev_move = mm
-                        continue 
-                    start, dd = mm #moves[-1]
-                    
-                    coord_start = (start * icon_shape + (icon_shape*2/3)  + top_left_icon + coord_base).astype(np.int32)
-                    coord_dest = (coord_start + dirs[dd] * icon_shape).astype(np.int32)
-
-                    pyautogui.moveTo(coord_start[1], coord_start[0])
-                    pyautogui.dragTo(coord_dest[1], coord_dest[0], button='left')
-
-                    prev_move = mm
-                    counter += 1
+    except KeyboardInterrupt:
+        pass
                     
 def main():
     global top_left_icon
