@@ -199,6 +199,7 @@ def get_move(arr=None):
 def move_icon(share_arr, q, icon_shape, coord_base):
     battle_mode = False
     top_left_icon = None
+    time_margin = 0.2
 
     with share_arr.get_lock(): # synchronize access
         arr = np.frombuffer(share_arr.get_obj()).reshape(8, 8) # update arr
@@ -249,6 +250,7 @@ def move_icon(share_arr, q, icon_shape, coord_base):
                         prev_move = None
                         moved = True
                         counter = 0
+                        start_time = time.time()
                         for mm in moves:
                             if counter > 3:
                                 break
@@ -265,6 +267,14 @@ def move_icon(share_arr, q, icon_shape, coord_base):
 
                             prev_move = mm
                             counter += 1
+                            
+                            cur_time = time.time()
+                            diff_time = cur_time - start_time
+                            # print("diff_time: {}".format(diff_time))
+                            if diff_time < time_margin:
+                                time.sleep(time_margin - diff_time)
+
+                            start_time = time.time()
 
             if not moved:
                 icon_other = np.stack(np.where(arr==0), -1)
