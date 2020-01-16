@@ -10,6 +10,8 @@ from queue import Empty
 import ctypes
 
 top_left_icon = None
+top_left_icon_small = None
+scale = None
 
 animals = {
     2: 'elephant',
@@ -103,7 +105,7 @@ def locate_animals(img, target_dict, thres=0.8, scale=1):
 
 
 def get_arr(img, target_dict):
-    global top_left_icon
+    global top_left_icon, top_left_icon_small, scale
     arr = np.zeros((8, 8))
     coord_dict, coord_list = locate_animals(img, target_dict)
 
@@ -116,9 +118,10 @@ def get_arr(img, target_dict):
         if res.shape[0] > 50: # 50 animals detected
             if top_left_icon is None:
                 indice = np.argmin(np.sum(res, 1))
-                top_left_icon = res[indice]
+                top_left_icon_small = res[indice]
+                top_left_icon = np.round(res[indice] * scale).astype(np.int64)
 
-            min_h, min_w = top_left_icon
+            min_h, min_w = top_left_icon_small
 
             for key in coord_dict:
                 if coord_dict[key].shape[0] == 0:
@@ -199,7 +202,7 @@ def get_move(arr=None):
 def move_icon(share_arr, q, icon_shape, coord_base):
     battle_mode = False
     top_left_icon = None
-    time_margin = 0.2
+    time_margin = 0.
 
     with share_arr.get_lock(): # synchronize access
         arr = np.frombuffer(share_arr.get_obj()).reshape(8, 8) # update arr
@@ -306,7 +309,7 @@ def move_icon(share_arr, q, icon_shape, coord_base):
         pass
                     
 def main():
-    global top_left_icon
+    global top_left_icon, scale
     args = get_argument()
     # read all pattern images
     target_dict = {}
@@ -349,18 +352,18 @@ def main():
                 monitor = {"top": min_h, "left": min_w, "width": max_w-min_w, "height": max_h-min_h}
 
                 # get the correct size patterns
-                round_start = cv2.resize(round_start, (0, 0), fx=scale, fy=scale)
-                win = cv2.resize(win, (0, 0), fx=scale, fy=scale)
-                battle = cv2.resize(battle, (0, 0), fx=scale, fy=scale)
-                for i in target_dict:
-                    target_dict[i] = cv2.resize(target_dict[i], (0, 0), fx=scale, fy=scale)
+                # round_start = cv2.resize(round_start, (0, 0), fx=scale, fy=scale)
+                # win = cv2.resize(win, (0, 0), fx=scale, fy=scale)
+                # battle = cv2.resize(battle, (0, 0), fx=scale, fy=scale)
+                # for i in target_dict:
+                    # target_dict[i] = cv2.resize(target_dict[i], (0, 0), fx=scale, fy=scale)
                 
-                icon_shape = np.array(target_dict[2].shape)
+                icon_shape = np.array(cv2.resize(target_dict[2], (0, 0), fx=scale, fy=scale).shape)
 
                 # start second process if specified
                 if args.mp:
                     print("Start moving process...")
-                    q = Queue(5) # maximum 30 moves
+                    q = Queue(5) 
                     shared_arr = Array(ctypes.c_double, 64)
                     np_arr = np.frombuffer(shared_arr.get_obj())
                     process_move = Process(target=move_icon, args=(shared_arr, q, icon_shape, coord_base, ))
@@ -368,6 +371,7 @@ def main():
 
                 while True:
                     img = np.array(sct.grab(monitor))[:, :, :3]
+                    img = cv2.resize(img, (0, 0), fx=1/scale, fy=1/scale)
                     img_gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
                     if (game_mode == 1 or game_mode == 3) and is_pattern_found(img_gray, round_start):
